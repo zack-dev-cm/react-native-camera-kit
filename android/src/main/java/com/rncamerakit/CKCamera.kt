@@ -45,8 +45,6 @@ import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.Size
 import com.facebook.react.uimanager.UIManagerHelper
-import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.rncamerakit.events.*
 import java.util.concurrent.RejectedExecutionException
@@ -87,6 +85,7 @@ class CKCamera(context: ThemedReactContext) : FrameLayout(context), LifecycleObs
     private var imageCapture: ImageCapture? = null
     private var imageAnalyzer: ImageAnalysis? = null
     private var faceAnalyzer: FaceAnalyzer? = null
+    private var barcodeAnalyzer: QRCodeAnalyzer? = null
     private var orientationListener: OrientationEventListener? = null
     private var viewFinder: PreviewView = PreviewView(context)
     private var rectOverlay: RectOverlay = RectOverlay(context)
@@ -152,6 +151,8 @@ class CKCamera(context: ThemedReactContext) : FrameLayout(context), LifecycleObs
         barcodeBindingGeneration++
         super.onDetachedFromWindow()
 
+        barcodeAnalyzer?.close()
+        barcodeAnalyzer = null
         faceAnalyzer?.close()
         faceAnalyzer = null
         cameraExecutor.shutdown()
@@ -362,10 +363,12 @@ class CKCamera(context: ThemedReactContext) : FrameLayout(context), LifecycleObs
 
         val useCases = mutableListOf(preview, imageCapture)
 
+        barcodeAnalyzer?.close()
+        barcodeAnalyzer = null
         faceAnalyzer?.close()
         faceAnalyzer = null
 
-        val barcodeAnalyzer: QRCodeAnalyzer? = if (scanBarcode) {
+        barcodeAnalyzer = if (scanBarcode) {
             QRCodeAnalyzer.withFrameGeometry(::onBarcodesDetected, scanThrottleDelay)
         } else null
 
@@ -379,8 +382,9 @@ class CKCamera(context: ThemedReactContext) : FrameLayout(context), LifecycleObs
             )
         } else null
 
+        val activeBarcodeAnalyzer = barcodeAnalyzer
         val activeFaceAnalyzer = faceAnalyzer
-        if (barcodeAnalyzer != null || activeFaceAnalyzer != null) {
+        if (activeBarcodeAnalyzer != null || activeFaceAnalyzer != null) {
             // PreviewView's transform is a UI-thread API. Snapshot it before
             // dispatching inference to the existing camera executor.
             imageAnalyzer!!.setAnalyzer(ContextCompat.getMainExecutor(context)) { image ->
@@ -391,11 +395,10 @@ class CKCamera(context: ThemedReactContext) : FrameLayout(context), LifecycleObs
                 val geometry = snapshotBarcodePreview()
                 try {
                     cameraExecutor.execute {
-                        val tasks = mutableListOf<Task<*>>()
-                        barcodeAnalyzer?.analyzeWithoutClosing(image, geometry)?.let { tasks.add(it) }
-                        activeFaceAnalyzer?.analyzeWithoutClosing(image)?.let { tasks.add(it) }
-                        if (tasks.isEmpty()) image.close()
-                        else Tasks.whenAllComplete(tasks).addOnCompleteListener { image.close() }
+                        analyzeSharedImage(image,
+                            { activeBarcodeAnalyzer?.analyzeWithoutClosing(it, geometry) },
+                            { activeFaceAnalyzer?.analyzeWithoutClosing(it) },
+                        )
                     }
                 } catch (_: RejectedExecutionException) {
                     image.close()
