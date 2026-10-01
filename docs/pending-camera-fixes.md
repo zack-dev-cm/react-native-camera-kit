@@ -29,4 +29,6 @@ git diff a2a81cee8995c831aca472836e2be446994ba070 HEAD -- android/src/main/java 
 
 The [public validation workflow](../.github/workflows/validate-pending-fixes.yml) checks out that pinned source and tree rather than the validation branch's tip. It installs an npm archive into the example, verifies the installed native sources, runs TypeScript and ESLint, then runs all 41 Robolectric tests and builds the installed Debug AAR with `newArchEnabled=false` and `true`. It requires zero failures, errors or skips, including the executor reattachment suite, and publishes a per-suite summary, JUnit reports, build logs and AARs.
 
+[Run 36891628860](https://github.com/zack-dev-cm/react-native-camera-kit/actions/runs/36891628860) passes both architecture jobs at that exact source revision: 41 tests per job with zero failures, errors or skips, TypeScript and ESLint, installed native-source comparisons and both Debug AAR builds. The job summaries list each test suite; the two downloadable artifacts contain the summaries, JUnit reports, build logs and AARs.
+
 The validation covers Android unit regressions and installed-library builds. It does not run physical-camera tests, new iOS runtime tests, or the upstream example workflow. Existing independent PR descriptions retain their earlier platform evidence. Upstream Build and Linter runs still need maintainer approval.
