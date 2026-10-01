@@ -1,0 +1,121 @@
+name: Pending camera fixes validation
+
+on:
+  push:
+    branches: [validation/pending-camera-fixes]
+    paths: [.github/workflows/validate-pending-fixes.yml]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  android-native:
+    if: github.repository == 'zack-dev-cm/react-native-camera-kit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        new-architecture: ['false', 'true']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: zack-dev-cm/react-native-camera-kit
+          ref: 7ffe27b14691536e6b96f7037033c9787cf942be
+          path: camera
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
+      - name: Verify source and install dependencies
+        run: |
+          test "$(git -C camera rev-parse HEAD)" = 7ffe27b14691536e6b96f7037033c9787cf942be
+          test "$(git -C camera rev-parse HEAD^{tree})" = 197520ff11fde87171639bb17c99cac06e4c9cce
+          npm install --global yarn@1.22.22
+          yarn --cwd camera install --frozen-lockfile --ignore-scripts
+          yarn --cwd camera/example install --frozen-lockfile --ignore-scripts
+      - name: Build, lint and package
+        working-directory: camera
+        run: |
+          yarn build
+          yarn lint
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+      - name: Install and verify packaged native sources
+        working-directory: camera/example
+        run: |
+          yarn add "file:$RUNNER_TEMP/react-native-camera-kit-18.0.1.tgz" --ignore-scripts --no-lockfile
+          test ! -L node_modules/react-native-camera-kit
+          diff -r ../android/src node_modules/react-native-camera-kit/android/src
+          cmp ../android/build.gradle node_modules/react-native-camera-kit/android/build.gradle
+      - name: Test and build the installed native library
+        working-directory: camera/example/android
+        run: |
+          set -o pipefail
+          ./gradlew :react-native-camera-kit:testDebugUnitTest :react-native-camera-kit:assembleDebug -PnewArchEnabled=${{ matrix.new-architecture }} --console=plain --max-workers=2 | tee "$RUNNER_TEMP/camera-native-build.log"
+      - name: Verify all regression tests and summarize results
+        env:
+          CAMERA_NEW_ARCH_ENABLED: ${{ matrix.new-architecture }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          folder = Path('camera/example/node_modules/react-native-camera-kit/android/build')
+          reports = sorted((folder / 'test-results/testDebugUnitTest').glob('TEST-*.xml'))
+          roots = [ET.parse(p).getroot() for p in reports]
+          assert sum(int(r.attrib['tests']) for r in roots) == 41, [r.attrib for r in roots]
+          assert all(all(int(r.attrib[k]) == 0 for k in ['failures', 'errors', 'skipped']) for r in roots)
+          assert any(r.attrib['name'] == 'com.rncamerakit.ReattachmentRegressionTest' for r in roots)
+          assert list((folder / 'outputs/aar').glob('*-debug.aar'))
+          suites = [{'name': r.attrib['name'], 'tests': int(r.attrib['tests'])} for r in roots]
+          result = {
+              'source_commit': '7ffe27b14691536e6b96f7037033c9787cf942be',
+              'source_tree': '197520ff11fde87171639bb17c99cac06e4c9cce',
+              'new_architecture': os.environ['CAMERA_NEW_ARCH_ENABLED'],
+              'tests': 41,
+              'failures': 0,
+              'errors': 0,
+              'skipped': 0,
+              'debug_aar_built': True,
+              'suites': suites,
+          }
+          (folder / 'validation-summary.json').write_text(json.dumps(result, indent=2) + '\n')
+          summary = [
+              '# Pending camera fixes',
+              '',
+              'Source: `7ffe27b14691536e6b96f7037033c9787cf942be`',
+              'New architecture enabled: `' + result['new_architecture'] + '`',
+              '',
+              '41 tests passed, zero skips; installed Debug AAR built.',
+              '',
+              '| Suite | Passed |',
+              '| --- | ---: |',
+          ]
+          summary.extend('| ' + s['name'] + ' | ' + str(s['tests']) + ' |' for s in suites)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('\n'.join(summary) + '\n')
+          print(json.dumps(result, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: camera-integration-architecture-${{ matrix.new-architecture }}
+          path: |
+            ${{ runner.temp }}/camera-native-build.log
+            camera/example/node_modules/react-native-camera-kit/android/build/test-results
+            camera/example/node_modules/react-native-camera-kit/android/build/validation-summary.json
+            camera/example/node_modules/react-native-camera-kit/android/build/outputs/aar/*-debug.aar
