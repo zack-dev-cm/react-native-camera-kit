@@ -2,7 +2,7 @@ name: Pending camera fixes validation
 
 on:
   push:
-    branches: [validation/pending-camera-fixes]
+    branches: [validation/tesla-fixes-20261019]
     paths: [.github/workflows/validate-pending-fixes.yml]
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zack-dev-cm/react-native-camera-kit
-          ref: 7ffe27b14691536e6b96f7037033c9787cf942be
+          ref: 90f906b345e46d2bd50839b1f41701cbee065441
           path: camera
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -41,8 +41,8 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Verify source and install dependencies
         run: |
-          test "$(git -C camera rev-parse HEAD)" = 7ffe27b14691536e6b96f7037033c9787cf942be
-          test "$(git -C camera rev-parse HEAD^{tree})" = 197520ff11fde87171639bb17c99cac06e4c9cce
+          test "$(git -C camera rev-parse HEAD)" = 90f906b345e46d2bd50839b1f41701cbee065441
+          test "$(git -C camera rev-parse HEAD^{tree})" = 79b8474874b27383a28cf0fe3c7abcb5984500bf
           npm install --global yarn@1.22.22
           yarn --cwd camera install --frozen-lockfile --ignore-scripts
           yarn --cwd camera/example install --frozen-lockfile --ignore-scripts
@@ -63,7 +63,7 @@ jobs:
         working-directory: camera/example/android
         run: |
           set -o pipefail
-          ./gradlew :react-native-camera-kit:testDebugUnitTest :react-native-camera-kit:assembleDebug -PnewArchEnabled=${{ matrix.new-architecture }} --console=plain --max-workers=2 | tee "$RUNNER_TEMP/camera-native-build.log"
+          ./gradlew :react-native-camera-kit:testDebugUnitTest :react-native-camera-kit:assembleDebug :app:assembleDebug -PnewArchEnabled=${{ matrix.new-architecture }} --console=plain --max-workers=2 | tee "$RUNNER_TEMP/camera-native-build.log"
       - name: Verify all regression tests and summarize results
         env:
           CAMERA_NEW_ARCH_ENABLED: ${{ matrix.new-architecture }}
@@ -81,26 +81,29 @@ jobs:
           assert all(all(int(r.attrib[k]) == 0 for k in ['failures', 'errors', 'skipped']) for r in roots)
           assert any(r.attrib['name'] == 'com.rncamerakit.ReattachmentRegressionTest' for r in roots)
           assert list((folder / 'outputs/aar').glob('*-debug.aar'))
+          apks = sorted(Path('camera/example/android/app/build/outputs/apk/debug').glob('*.apk'))
+          assert apks, 'Debug example APK was not built'
           suites = [{'name': r.attrib['name'], 'tests': int(r.attrib['tests'])} for r in roots]
           result = {
-              'source_commit': '7ffe27b14691536e6b96f7037033c9787cf942be',
-              'source_tree': '197520ff11fde87171639bb17c99cac06e4c9cce',
+              'source_commit': '90f906b345e46d2bd50839b1f41701cbee065441',
+              'source_tree': '79b8474874b27383a28cf0fe3c7abcb5984500bf',
               'new_architecture': os.environ['CAMERA_NEW_ARCH_ENABLED'],
               'tests': 41,
               'failures': 0,
               'errors': 0,
               'skipped': 0,
               'debug_aar_built': True,
+              'debug_example_apk_built': True,
               'suites': suites,
           }
           (folder / 'validation-summary.json').write_text(json.dumps(result, indent=2) + '\n')
           summary = [
               '# Pending camera fixes',
               '',
-              'Source: `7ffe27b14691536e6b96f7037033c9787cf942be`',
+              'Source: `90f906b345e46d2bd50839b1f41701cbee065441`',
               'New architecture enabled: `' + result['new_architecture'] + '`',
               '',
-              '41 tests passed, zero skips; installed Debug AAR built.',
+              '41 tests passed, zero skips; installed Debug AAR and example APK built.',
               '',
               '| Suite | Passed |',
               '| --- | ---: |',
@@ -119,3 +122,82 @@ jobs:
             camera/example/node_modules/react-native-camera-kit/android/build/test-results
             camera/example/node_modules/react-native-camera-kit/android/build/validation-summary.json
             camera/example/node_modules/react-native-camera-kit/android/build/outputs/aar/*-debug.aar
+
+  linux-bootstrap-control:
+    if: github.repository == 'zack-dev-cm/react-native-camera-kit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d8b1dd3307c5e4d89bff7b3647e68887fdf58683
+          path: camera
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install root dependencies
+        run: |
+          npm install --global yarn@1.22.22
+          yarn --cwd camera install --frozen-lockfile --ignore-scripts
+      - name: Preserve the original Linux bootstrap result
+        working-directory: camera
+        run: |
+          set +e
+          yarn bootstrap-linux > "$RUNNER_TEMP/linux-bootstrap.log" 2>&1
+          result=$?
+          set -e
+          export BOOTSTRAP_EXIT="$result"
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP'])
+          log = (path / 'linux-bootstrap.log').read_text()
+          result = {'source_commit': 'd8b1dd3307c5e4d89bff7b3647e68887fdf58683',
+                    'actual_bootstrap_exit': int(os.environ['BOOTSTRAP_EXIT']),
+                    'cocoapods_hook_reached': 'bundle exec pod install' in log}
+          (path / 'linux-bootstrap-result.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result))
+          assert result['actual_bootstrap_exit'] != 0, 'Expected the original bootstrap to fail on Linux'
+          assert result['cocoapods_hook_reached'], 'Failure did not reach the expected postinstall hook'
+          PYCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-linux-bootstrap
+          path: |
+            ${{ runner.temp }}/linux-bootstrap.log
+            ${{ runner.temp }}/linux-bootstrap-result.json
+
+  ios-device-build:
+    if: github.repository == 'zack-dev-cm/react-native-camera-kit'
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 173643f47bf6ad8eb872d13fc46ce7c74f186d25
+          path: camera
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '2.7.4'
+      - name: Install dependencies and build the iOS example
+        working-directory: camera
+        run: |
+          test "$(git rev-parse HEAD)" = 173643f47bf6ad8eb872d13fc46ce7c74f186d25
+          npm install --global yarn@1.22.22
+          yarn install --frozen-lockfile
+          yarn bootstrap
+          cd example/ios
+          xcodebuild -workspace CameraKitExample.xcworkspace -configuration Debug -scheme CameraKitExample -sdk iphoneos build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO | tee "$RUNNER_TEMP/ios-device-build.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-device-build
+          path: ${{ runner.temp }}/ios-device-build.log
