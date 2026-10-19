@@ -1,34 +1,29 @@
 # Pending Camera Kit fixes
 
-The resolved integration combines the following independently submitted fixes against upstream base `a2a81cee8995c831aca472836e2be446994ba070`:
+The current resolved integration combines these contributions against upstream base `a2a81cee8995c831aca472836e2be446994ba070`:
 
 | PR | Source commit | Change |
 | --- | --- | --- |
-| [#816](https://github.com/teslamotors/react-native-camera-kit/pull/816) | `d8b1dd3307c5e4d89bff7b3647e68887fdf58683` | iOS CI toolchain and default-branch push filters |
-| [#812](https://github.com/teslamotors/react-native-camera-kit/pull/812) | `d21863507221f0df9fddad9080cc02e16d09e7d9` | Android barcode coordinate mapping |
+| [#816](https://github.com/teslamotors/react-native-camera-kit/pull/816) | `173643f47bf6ad8eb872d13fc46ce7c74f186d25` | Linux installation, iOS toolchain, branch triggers and Android regression CI |
+| [#812](https://github.com/teslamotors/react-native-camera-kit/pull/812) | `d21863507221f0df9fddad9080cc02e16d09e7d9` | Barcode coordinate mapping |
 | [#813](https://github.com/teslamotors/react-native-camera-kit/pull/813) | `81914f544e2005d3b16c9c2e987c8540fc4aa3f3` | Scanner lifecycle and shared-image ownership |
-| [#817](https://github.com/teslamotors/react-native-camera-kit/pull/817) | `39eee8e44bb7f326a12328457fa41edb117c6e87` | Executor recreation when the same view reattaches |
+| [#817](https://github.com/teslamotors/react-native-camera-kit/pull/817) | `39eee8e44bb7f326a12328457fa41edb117c6e87` | Executor recreation on reattachment |
 
-The source commit is [`7ffe27b14691536e6b96f7037033c9787cf942be`](https://github.com/zack-dev-cm/react-native-camera-kit/commit/7ffe27b14691536e6b96f7037033c9787cf942be), with tree `197520ff11fde87171639bb17c99cac06e4c9cce`. All four submitted heads are ancestors of this commit. The production fixes remain on their independent PR branches.
+The integration is [`90f906b345e46d2bd50839b1f41701cbee065441`](https://github.com/zack-dev-cm/react-native-camera-kit/commit/90f906b345e46d2bd50839b1f41701cbee065441), tree `79b8474874b27383a28cf0fe3c7abcb5984500bf`, on `integration/tesla-fixes-20261019`. All four heads above are ancestors. Its native files are identical to the earlier `7ffe27b` integration; the new diff changes only Build and Linter workflows.
 
-The geometry and scanner fixes overlap in `CKCamera.kt`, `QRCodeAnalyzer.kt`, and `android/build.gradle`. Their resolution retains the geometry snapshots and coordinate mapper while giving each analyzer its scanner lifecycle and routing image closure through the shared-consumer helper. The executor follow-up adds its three-line attachment guard and three regression tests. Gradle test dependencies occur once. The CI changes merge independently.
-
-Review CI #816 first, then the geometry, scanner and executor changes. When incorporating the fixes separately, use the integrated versions of the overlapping files as the tested resolution. The integration contains all four fixes, so its complete diff should be reviewed before incorporating the whole branch.
-
-In a clean checkout, inspect the exact revision without changing an existing branch:
+The native fixes remain independently submitted. Geometry and scanner ownership overlap in `CKCamera.kt`, `QRCodeAnalyzer.kt` and Gradle configuration. The resolved files retain geometry snapshots, scanner ownership and shared-image closure, then add the executor guard. Review CI #816 first and use this complete integration as the tested resolution of those overlaps. Inspect its full diff before incorporating it.
 
 ```sh
-git fetch https://github.com/zack-dev-cm/react-native-camera-kit.git integration/pending-camera-fixes
-git switch --create review-pending-camera-fixes FETCH_HEAD
+git fetch https://github.com/zack-dev-cm/react-native-camera-kit.git integration/tesla-fixes-20261019
+git switch --create review-camera-fixes FETCH_HEAD
 git rev-parse HEAD
 git rev-parse 'HEAD^{tree}'
 git diff --check a2a81cee8995c831aca472836e2be446994ba070 HEAD
-git diff --stat a2a81cee8995c831aca472836e2be446994ba070 HEAD
 git diff a2a81cee8995c831aca472836e2be446994ba070 HEAD -- android/src/main/java android/build.gradle .github/workflows
 ```
 
-The [public validation workflow](../.github/workflows/validate-pending-fixes.yml) checks out that pinned source and tree rather than the validation branch's tip. It installs an npm archive into the example, verifies the installed native sources, runs TypeScript and ESLint, then runs all 41 Robolectric tests and builds the installed Debug AAR with `newArchEnabled=false` and `true`. It requires zero failures, errors or skips, including the executor reattachment suite, and publishes a per-suite summary, JUnit reports, build logs and AARs.
+[Run 39201665460](https://github.com/zack-dev-cm/react-native-camera-kit/actions/runs/39201665460) passed on October 19, 2026. Its Android jobs pin this integration, build and install an npm archive, verify installed native files, run TypeScript/ESLint, and pass all 41 Robolectric cases per architecture with zero failures, errors or skips. Both installed Debug AARs and Android example APKs build. The five suites cover coordinate mapping (9), selection (8), scanner lifecycle (14), shared-image ownership (7) and executor reattachment (3).
 
-[Run 36891628860](https://github.com/zack-dev-cm/react-native-camera-kit/actions/runs/36891628860) passes both architecture jobs at that exact source revision: 41 tests per job with zero failures, errors or skips, TypeScript and ESLint, installed native-source comparisons and both Debug AAR builds. The job summaries list each test suite; the two downloadable artifacts contain the summaries, JUnit reports, build logs and AARs.
+The separate iOS job pins the isolated #816 source `173643f` and passes the exact Debug `iphoneos` example build with Xcode 26.2. The original Linux bootstrap at `d8b1dd3` reaches the CocoaPods hook and fails with exit 127 (`bundle: not found`). Its control job expects that failure and preserves its actual output; a successful verifier job does not make the original bootstrap pass.
 
-The validation covers Android unit regressions and installed-library builds. It does not run physical-camera tests, new iOS runtime tests, or the upstream example workflow. Existing independent PR descriptions retain their earlier platform evidence. Upstream Build and Linter runs still need maintainer approval.
+The run publishes JUnit, per-suite summaries, build logs and AARs. This is unit/build validation, with simulated geometry and mocked inference in the unit cases. New physical-camera checks, ML Kit instrumentation, simulator navigation and performance measurements were not run. Earlier independent platform evidence remains in the original PR descriptions. Upstream workflow execution and maintainer acceptance are separate requirements.
